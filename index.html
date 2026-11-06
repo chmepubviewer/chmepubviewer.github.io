@@ -1,0 +1,2826 @@
+<!DOCTYPE html>
+<!-- MIT License
+Copyright (c) 2025-2026 Valentyn Kolesnikov <0009-0003-9608-3364@orcid.org>
+-->
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="CHM / EPUB reader with automatic file and reading-position restoration.">
+<meta name="theme-color" content="#1a1a2e">
+<title data-i18n="title">CHM / EPUB Viewer</title>
+
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23e94560'/%3E%3Cpath d='M25 28h22c6 0 11 4 11 10v38c0-4-4-7-9-7H25z' fill='%23fff'/%3E%3Cpath d='M75 28H53c-6 0-11 4-11 10v38c0-4 4-7 9-7h24z' fill='%23fff' opacity='.75'/%3E%3C/svg%3E">
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
+
+<style>
+:root {
+  --bg:#1a1a2e;
+  --surface:#16213e;
+  --surface-2:#0f3460;
+  --accent:#e94560;
+  --accent-2:#53a8b6;
+  --text:#e0e0e0;
+  --text-dim:#9a9a9a;
+  --reader-bg:#fff;
+  --reader-text:#222;
+  --shadow:0 10px 40px rgba(0,0,0,.4);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family:'Segoe UI','Roboto',system-ui,sans-serif;
+  background:linear-gradient(135deg,var(--bg),#0d0d1a);
+  color:var(--text);
+  height:100vh;
+  height:100dvh;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+
+header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:12px 20px;
+  background:rgba(22,33,62,.9);
+  backdrop-filter:blur(10px);
+  border-bottom:2px solid var(--surface-2);
+  box-shadow:0 4px 20px rgba(0,0,0,.3);
+  z-index:10;
+  gap:12px;
+  flex-wrap:wrap;
+  flex-shrink:0;
+}
+
+.logo {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-weight:700;
+  font-size:1.2rem;
+}
+
+.logo-icon {
+  width:36px;
+  height:36px;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  border-radius:10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:1.1rem;
+  box-shadow:0 4px 12px rgba(233,69,96,.4);
+}
+
+.header-controls {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.btn {
+  background:var(--surface-2);
+  color:var(--text);
+  border:none;
+  padding:9px 16px;
+  border-radius:8px;
+  cursor:pointer;
+  font-size:.9rem;
+  transition:all .2s;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+}
+
+.btn:hover {
+  background:var(--accent);
+  transform:translateY(-2px);
+}
+
+.btn:active { transform:translateY(0); }
+.btn.primary { background:linear-gradient(135deg,var(--accent),#c73650); }
+.btn.disabled { opacity:.55; pointer-events:none; }
+
+.lang-switch {
+  display:flex;
+  background:var(--surface-2);
+  border-radius:8px;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.1);
+}
+
+.lang-switch button {
+  background:transparent;
+  color:var(--text-dim);
+  border:none;
+  padding:8px 14px;
+  cursor:pointer;
+  font-weight:600;
+}
+
+.lang-switch button.active { background:var(--accent); color:white; }
+.lang-sep { color:var(--text-dim); align-self:center; }
+
+.main {
+  flex:1;
+  min-height:0;
+  display:flex;
+  overflow:hidden;
+  position:relative;
+}
+
+.sidebar {
+  width:280px;
+  background:rgba(15,52,96,.4);
+  backdrop-filter:blur(6px);
+  border-right:2px solid var(--surface-2);
+  overflow-y:auto;
+  overflow-x:hidden;
+  transition:width .3s;
+  flex-shrink:0;
+}
+
+.sidebar.hidden { width:0; border-right:0; }
+
+.sidebar h3 {
+  padding:16px;
+  font-size:.85rem;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  color:var(--accent-2);
+  border-bottom:1px solid var(--surface-2);
+  white-space:nowrap;
+}
+
+.toc-item {
+  padding:10px 16px;
+  cursor:pointer;
+  font-size:.9rem;
+  border-left:3px solid transparent;
+  transition:all .15s;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.toc-item:hover {
+  background:rgba(233,69,96,.15);
+  border-left-color:var(--accent);
+}
+
+.toc-item.active {
+  background:rgba(233,69,96,.25);
+  border-left-color:var(--accent);
+}
+
+.toc-item.sub {
+  padding-left:32px;
+  font-size:.82rem;
+  color:var(--text-dim);
+}
+
+.reader-wrap {
+  flex:1;
+  min-width:0;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  position:relative;
+}
+
+.drop-zone {
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  padding:40px;
+  gap:20px;
+}
+
+.drop-zone.dragover { background:rgba(233,69,96,.1); }
+.drop-zone h2 { font-weight:600; }
+.drop-zone p { color:var(--text-dim); max-width:440px; }
+
+.drop-icon {
+  font-size:4rem;
+  opacity:.6;
+  animation:float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%,100% { transform:translateY(0); }
+  50% { transform:translateY(-12px); }
+}
+
+#viewer,
+#chm-content {
+  flex:1;
+  min-height:0;
+  background:var(--reader-bg);
+  margin:16px;
+  border-radius:12px;
+  box-shadow:var(--shadow);
+  overflow:hidden;
+  display:none;
+}
+
+#viewer.active,
+#chm-content.active { display:block; }
+
+#chm-content { color:var(--reader-text); }
+
+#chm-frame {
+  display:block;
+  width:100%;
+  height:100%;
+  border:none;
+  background:#fff;
+  border-radius:12px;
+}
+
+.reader-controls {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:16px;
+  padding:10px;
+  background:rgba(22,33,62,.9);
+  border-top:1px solid var(--surface-2);
+  flex-shrink:0;
+}
+
+.nav-btn {
+  background:var(--surface-2);
+  color:var(--text);
+  border:none;
+  width:44px;
+  height:44px;
+  border-radius:50%;
+  cursor:pointer;
+  font-size:1.2rem;
+  transition:all .2s;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.nav-btn:hover { background:var(--accent); transform:scale(1.1); }
+
+.progress {
+  font-size:.85rem;
+  color:var(--text-dim);
+  min-width:120px;
+  text-align:center;
+}
+
+.font-controls { display:flex; gap:6px; align-items:center; }
+input[type="file"] { display:none; }
+
+::-webkit-scrollbar { width:10px; }
+::-webkit-scrollbar-track { background:var(--surface); }
+::-webkit-scrollbar-thumb { background:var(--surface-2); border-radius:5px; }
+::-webkit-scrollbar-thumb:hover { background:var(--accent); }
+
+.toast {
+  position:fixed;
+  bottom:80px;
+  left:50%;
+  transform:translateX(-50%) translateY(100px);
+  background:var(--accent);
+  color:white;
+  padding:12px 24px;
+  border-radius:30px;
+  box-shadow:var(--shadow);
+  opacity:0;
+  transition:all .3s;
+  z-index:100;
+  max-width:80%;
+  text-align:center;
+  overflow-wrap:anywhere;
+  pointer-events:none;
+}
+
+.toast.show {
+  opacity:1;
+  transform:translateX(-50%) translateY(0);
+}
+
+.spinner {
+  width:48px;
+  height:48px;
+  border:5px solid var(--surface-2);
+  border-top-color:var(--accent);
+  border-radius:50%;
+  animation:spin .8s linear infinite;
+}
+
+@keyframes spin { to { transform:rotate(360deg); } }
+
+.loader-overlay {
+  position:absolute;
+  inset:0;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  gap:16px;
+  background:rgba(13,13,26,.7);
+  backdrop-filter:blur(4px);
+  z-index:20;
+}
+
+.loader-overlay.show { display:flex; }
+#loaderDetail { font-size:.85rem; color:var(--text-dim); }
+
+@media (max-width:700px) {
+  .sidebar {
+    position:absolute;
+    z-index:5;
+    height:100%;
+    background:rgba(15,52,96,.97);
+  }
+
+  .logo span { display:none; }
+  header { padding:10px; }
+  .btn { padding:8px 12px; }
+}
+</style>
+</head>
+
+<body>
+<header>
+  <div class="logo">
+    <div class="logo-icon">📖</div>
+    <span data-i18n="appName">CHM / EPUB Viewer</span>
+  </div>
+
+  <div class="header-controls">
+    <button class="btn" id="toggleToc">
+      ☰ <span data-i18n="toc">Зміст</span>
+    </button>
+
+    <label class="btn primary file-button">
+      📁 <span data-i18n="open">Відкрити</span>
+      <input type="file" id="fileInput" accept=".epub,.chm">
+    </label>
+
+    <div class="font-controls">
+      <button class="btn" id="fontDown" aria-label="Decrease font size">A−</button>
+      <button class="btn" id="fontUp" aria-label="Increase font size">A+</button>
+    </div>
+
+    <div class="lang-switch">
+      <button id="lang-uk" data-lang="uk">UK</button>
+      <span class="lang-sep">|</span>
+      <button id="lang-en" data-lang="en">EN</button>
+    </div>
+  </div>
+</header>
+
+<div class="main">
+  <aside class="sidebar" id="sidebar">
+    <h3 data-i18n="tableOfContents">Зміст книги</h3>
+    <div id="tocList"></div>
+  </aside>
+
+  <div class="reader-wrap">
+    <div class="drop-zone" id="dropZone">
+      <div class="drop-icon">📚</div>
+      <h2 data-i18n="dropTitle">Перетягніть файл сюди</h2>
+      <p data-i18n="dropText">Підтримуються формати EPUB та CHM. Відкритий файл і позиція читання зберігаються в цьому браузері.</p>
+
+      <label class="btn primary file-button">
+        📁 <span data-i18n="chooseFile">Вибрати файл</span>
+        <input type="file" id="fileInput2" accept=".epub,.chm">
+      </label>
+    </div>
+
+    <div id="viewer"></div>
+
+    <div id="chm-content">
+      <iframe
+        id="chm-frame"
+        title="CHM page"
+        sandbox="allow-same-origin"
+        referrerpolicy="no-referrer"
+      ></iframe>
+    </div>
+
+    <div class="loader-overlay" id="loader">
+      <div class="spinner"></div>
+      <div id="loaderLabel" data-i18n="loading">Завантаження...</div>
+      <div id="loaderDetail"></div>
+    </div>
+
+    <div class="reader-controls" id="readerControls" style="display:none">
+      <button class="nav-btn" id="prevBtn" aria-label="Previous page">‹</button>
+      <span class="progress" id="progress">—</span>
+      <button class="nav-btn" id="nextBtn" aria-label="Next page">›</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+
+/* ===================================================================
+   TRANSLATIONS / STATE
+=================================================================== */
+
+const I18N = {
+  uk: {
+    title:"CHM / EPUB Viewer",
+    appName:"CHM / EPUB Viewer",
+    toc:"Зміст",
+    open:"Відкрити",
+    tableOfContents:"Зміст книги",
+    dropTitle:"Перетягніть файл сюди",
+    dropText:"Підтримуються формати EPUB та CHM. Відкритий файл і позиція читання зберігаються в цьому браузері.",
+    chooseFile:"Вибрати файл",
+    page:"Сторінка",
+    loaded:"Книгу завантажено та збережено",
+    restored:"Книгу та позицію читання відновлено",
+    loading:"Завантаження...",
+    restoring:"Відновлення книги...",
+    saving:"Збереження книги...",
+    parsingChm:"Обробка CHM (розпакування LZX)...",
+    errorFormat:"Непідтримуваний формат файлу",
+    errorLoad:"Помилка завантаження файлу",
+    errorChm:"Не вдалося розібрати CHM-файл",
+    errorRestore:"Не вдалося відновити книгу. Відкрийте файл знову.",
+    storageError:"Книгу відкрито, але браузер не зміг її зберегти. Автовідновлення недоступне.",
+    positionError:"Не вдалося зберегти позицію читання.",
+    noToc:"Зміст відсутній",
+    missingPage:"Сторінку не знайдено"
+  },
+  en: {
+    title:"CHM / EPUB Viewer",
+    appName:"CHM / EPUB Viewer",
+    toc:"Contents",
+    open:"Open",
+    tableOfContents:"Table of Contents",
+    dropTitle:"Drop a file here",
+    dropText:"EPUB and CHM formats are supported. The opened file and reading position are saved in this browser.",
+    chooseFile:"Choose file",
+    page:"Page",
+    loaded:"Book loaded and saved",
+    restored:"Book and reading position restored",
+    loading:"Loading...",
+    restoring:"Restoring book...",
+    saving:"Saving book...",
+    parsingChm:"Processing CHM (LZX decompression)...",
+    errorFormat:"Unsupported file format",
+    errorLoad:"Error loading file",
+    errorChm:"Failed to parse CHM file",
+    errorRestore:"Could not restore the book. Please open the file again.",
+    storageError:"Book opened, but the browser could not save it. Automatic restoration is unavailable.",
+    positionError:"Could not save the reading position.",
+    noToc:"No table of contents",
+    missingPage:"Page not found"
+  }
+};
+
+const STORE_KEY = "chmEpubViewerState";
+const $ = id => document.getElementById(id);
+
+let state = {
+  lang:"uk",
+  fontSize:100,
+  tocVisible:true,
+  fileName:null,
+  sessionId:null,
+  cfi:null,
+  chmPath:null,
+  chmHash:"",
+  chmScroll:0,
+  positionUpdatedAt:0
+};
+
+let book = null;
+let rendition = null;
+let chm = null;
+let busy = false;
+let toastTimer;
+let locationTimer;
+let scrollSaveTimer;
+let activeSessionId = null;
+let persistedSessionId = null;
+let positionWarningShown = false;
+let chmPageToken = 0;
+let chmPageReady = false;
+
+const dropZone = $("dropZone");
+
+function loadState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (saved && typeof saved === "object") state = {...state, ...saved};
+  } catch (_) {}
+
+  if (!I18N[state.lang]) state.lang = "uk";
+  state.fontSize = Math.max(60, Math.min(220, Number(state.fontSize) || 100));
+  state.chmScroll = Math.max(0, Number(state.chmScroll) || 0);
+}
+
+function saveState() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function applyLang() {
+  const dict = I18N[state.lang];
+  document.documentElement.lang = state.lang;
+
+  document.querySelectorAll("[data-i18n]").forEach(element => {
+    const text = dict[element.dataset.i18n];
+    if (text) element.textContent = text;
+  });
+
+  document.querySelectorAll(".lang-switch button").forEach(button => {
+    button.classList.toggle("active", button.dataset.lang === state.lang);
+  });
+}
+
+document.querySelectorAll(".lang-switch button").forEach(button => {
+  button.addEventListener("click", () => {
+    state.lang = button.dataset.lang;
+    saveState();
+    applyLang();
+  });
+});
+
+function toast(message, duration = 4000) {
+  const element = $("toast");
+  element.textContent = message;
+  element.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => element.classList.remove("show"), duration);
+}
+
+function setLoaderLabel(key) {
+  $("loaderLabel").dataset.i18n = key;
+  $("loaderLabel").textContent = I18N[state.lang][key];
+}
+
+function showLoader(show) {
+  $("loader").classList.toggle("show", show);
+  if (!show) $("loaderDetail").textContent = "";
+}
+
+function setBusy(value) {
+  busy = value;
+  $("fileInput").disabled = value;
+  $("fileInput2").disabled = value;
+  document.querySelectorAll(".file-button").forEach(element => {
+    element.classList.toggle("disabled", value);
+  });
+}
+
+/* ===================================================================
+   PERSISTENCE
+
+   IndexedDB stores the actual file Blob and its reading position.
+   localStorage stores small UI settings and an immediately available
+   position snapshot. A session ID prevents positions from different
+   books from being mixed together.
+=================================================================== */
+
+const DB_NAME = "ChmEpubViewerFiles";
+const DB_VERSION = 1;
+const DB_STORE = "session";
+const DB_CURRENT_KEY = "current";
+
+let databasePromise = null;
+
+function openDatabase() {
+  if (databasePromise) return databasePromise;
+
+  databasePromise = new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error("IndexedDB is unavailable"));
+      return;
+    }
+
+    let request;
+    try {
+      request = indexedDB.open(DB_NAME, DB_VERSION);
+    } catch (error) {
+      reject(error);
+      return;
+    }
+
+    let failed = false;
+
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(DB_STORE)) {
+        database.createObjectStore(DB_STORE);
+      }
+    };
+
+    request.onsuccess = () => {
+      const database = request.result;
+      if (failed) {
+        database.close();
+        return;
+      }
+
+      database.onversionchange = () => {
+        database.close();
+        databasePromise = null;
+      };
+
+      resolve(database);
+    };
+
+    request.onerror = () => {
+      failed = true;
+      reject(request.error || new Error("Could not open browser storage"));
+    };
+
+    request.onblocked = () => {
+      failed = true;
+      reject(new Error("Browser storage is blocked by another tab"));
+    };
+  }).catch(error => {
+    databasePromise = null;
+    throw error;
+  });
+
+  return databasePromise;
+}
+
+async function readSavedSession() {
+  const database = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(DB_STORE, "readonly");
+    const request = transaction.objectStore(DB_STORE).get(DB_CURRENT_KEY);
+    let result = null;
+
+    request.onsuccess = () => { result = request.result || null; };
+    transaction.oncomplete = () => resolve(result);
+    transaction.onerror = () => reject(transaction.error || request.error);
+    transaction.onabort = () => reject(
+      transaction.error || new Error("Storage read aborted")
+    );
+  });
+}
+
+async function writeSavedSession(record) {
+  const database = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(DB_STORE, "readwrite");
+    transaction.objectStore(DB_STORE).put(record, DB_CURRENT_KEY);
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(
+      transaction.error || new Error("Storage write aborted")
+    );
+  });
+}
+
+async function updateSavedPosition(sessionId, location) {
+  const database = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(DB_STORE, "readwrite");
+    const store = transaction.objectStore(DB_STORE);
+    const request = store.get(DB_CURRENT_KEY);
+
+    request.onsuccess = () => {
+      const record = request.result;
+
+      // Never apply an old asynchronous update to a newly opened book.
+      if (!record || record.id !== sessionId) return;
+
+      if (
+        record.location &&
+        Number(record.location.updatedAt) > location.updatedAt
+      ) {
+        return;
+      }
+
+      record.location = location;
+      store.put(record, DB_CURRENT_KEY);
+    };
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error || request.error);
+    transaction.onabort = () => reject(
+      transaction.error || new Error("Position update aborted")
+    );
+  });
+}
+
+function newSessionId() {
+  if (window.crypto && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+}
+
+function currentLocation() {
+  return {
+    cfi:typeof state.cfi === "string" ? state.cfi : null,
+    chmPath:typeof state.chmPath === "string" ? state.chmPath : null,
+    chmHash:typeof state.chmHash === "string" ? state.chmHash : "",
+    chmScroll:Math.max(0, Number(state.chmScroll) || 0),
+    updatedAt:Number(state.positionUpdatedAt) || 0
+  };
+}
+
+function applySavedLocation(location) {
+  location = location || {};
+
+  state.cfi = typeof location.cfi === "string" ? location.cfi : null;
+  state.chmPath = typeof location.chmPath === "string"
+    ? location.chmPath
+    : null;
+  state.chmHash = typeof location.chmHash === "string"
+    ? location.chmHash
+    : "";
+  state.chmScroll = Math.max(0, Number(location.chmScroll) || 0);
+  state.positionUpdatedAt = Number(location.updatedAt) || 0;
+}
+
+function positionChanged() {
+  if (!activeSessionId) return;
+
+  state.sessionId = activeSessionId;
+  state.positionUpdatedAt = Date.now();
+
+  // Synchronous, small snapshot also covers an immediate page reload.
+  saveState();
+
+  clearTimeout(locationTimer);
+  locationTimer = setTimeout(() => {
+    persistPosition().catch(reportPositionError);
+  }, 350);
+}
+
+function reportPositionError(error) {
+  console.warn("Reading-position persistence failed:", error);
+  if (!positionWarningShown) {
+    positionWarningShown = true;
+    toast(I18N[state.lang].positionError, 6000);
+  }
+}
+
+async function persistPosition() {
+  clearTimeout(locationTimer);
+
+  const sessionId = activeSessionId;
+  if (!sessionId || persistedSessionId !== sessionId) return;
+
+  await updateSavedPosition(sessionId, currentLocation());
+}
+
+function captureChmScroll() {
+  if (!chm || !chmPageReady) return;
+
+  try {
+    const documentObject = $("chm-frame").contentDocument;
+    const scrollingElement = documentObject.scrollingElement;
+    state.chmScroll = Math.max(
+      0,
+      scrollingElement ? scrollingElement.scrollTop : 0
+    );
+  } catch (_) {}
+}
+
+function flushReadingPosition() {
+  clearTimeout(scrollSaveTimer);
+  captureChmScroll();
+
+  if (activeSessionId) {
+    positionChanged();
+    persistPosition().catch(reportPositionError);
+  } else {
+    saveState();
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushReadingPosition();
+});
+
+window.addEventListener("pagehide", flushReadingPosition);
+
+/* ===================================================================
+   BOOK CLEANUP / FILE HANDLING
+=================================================================== */
+
+function clearCurrentBook() {
+  clearTimeout(locationTimer);
+  clearTimeout(scrollSaveTimer);
+
+  activeSessionId = null;
+  persistedSessionId = null;
+  chmPageReady = false;
+  chmPageToken++;
+
+  if (rendition) {
+    try { rendition.destroy(); } catch (_) {}
+    rendition = null;
+  }
+
+  if (book) {
+    try { book.destroy(); } catch (_) {}
+    book = null;
+  }
+
+  if (chm && chm._urlCache) {
+    for (const url of chm._urlCache.values()) URL.revokeObjectURL(url);
+  }
+
+  chm = null;
+
+  $("chm-frame").onload = null;
+  $("chm-frame").srcdoc = "";
+  $("viewer").replaceChildren();
+  $("viewer").classList.remove("active");
+  $("chm-content").classList.remove("active");
+  $("readerControls").style.display = "none";
+  $("tocList").replaceChildren();
+  $("progress").textContent = "—";
+}
+
+async function handleFile(file, restoredRecord = null) {
+  if (!file || busy) return;
+
+  const fileName = restoredRecord ? restoredRecord.name : file.name;
+  const lowerName = (fileName || "").toLowerCase();
+  const isChm = lowerName.endsWith(".chm");
+
+  if (!isChm && !lowerName.endsWith(".epub")) {
+    toast(I18N[state.lang].errorFormat);
+    return;
+  }
+
+  setBusy(true);
+  setLoaderLabel(restoredRecord ? "restoring" : "loading");
+  showLoader(true);
+
+  let restoreLocation = null;
+
+  if (restoredRecord) {
+    restoreLocation = restoredRecord.location || {};
+
+    // Prefer the synchronous snapshot when it belongs to this file
+    // and is newer than the last completed IndexedDB update.
+    if (
+      state.sessionId === restoredRecord.id &&
+      Number(state.positionUpdatedAt) >=
+        (Number(restoreLocation.updatedAt) || 0)
+    ) {
+      restoreLocation = currentLocation();
+    }
+  }
+
+  try {
+    captureChmScroll();
+    if (activeSessionId) {
+      positionChanged();
+      try { await persistPosition(); } catch (error) {
+        console.warn(error);
+      }
+    }
+
+    const data = await file.arrayBuffer();
+    clearCurrentBook();
+
+    activeSessionId = restoredRecord
+      ? restoredRecord.id
+      : newSessionId();
+
+    state.sessionId = activeSessionId;
+    state.fileName = fileName;
+    applySavedLocation(restoreLocation);
+    positionWarningShown = false;
+    saveState();
+
+    await new Promise(resolve => setTimeout(resolve, 30));
+
+    if (isChm) {
+      setLoaderLabel("parsingChm");
+      await openChm(data);
+    } else {
+      await openEpub(data);
+    }
+
+    if (restoredRecord) {
+      persistedSessionId = activeSessionId;
+      try {
+        await persistPosition();
+      } catch (error) {
+        reportPositionError(error);
+      }
+      toast(I18N[state.lang].restored);
+    } else {
+      setLoaderLabel("saving");
+
+      const record = {
+        id:activeSessionId,
+        name:fileName,
+        kind:isChm ? "chm" : "epub",
+        // Store the original file, not its decompressed contents.
+        blob:file,
+        savedAt:Date.now(),
+        location:currentLocation()
+      };
+
+      try {
+        await writeSavedSession(record);
+        persistedSessionId = activeSessionId;
+
+        // Include a position event that occurred while the Blob was saving.
+        await persistPosition();
+        toast(I18N[state.lang].loaded);
+      } catch (error) {
+        console.warn("File persistence failed:", error);
+        toast(I18N[state.lang].storageError, 10000);
+      }
+    }
+  } catch (error) {
+    console.error(error);
+    clearCurrentBook();
+    dropZone.style.display = "flex";
+
+    const prefix = restoredRecord
+      ? I18N[state.lang].errorRestore
+      : isChm
+        ? I18N[state.lang].errorChm
+        : I18N[state.lang].errorLoad;
+
+    toast(prefix + " " + error.message, 12000);
+  } finally {
+    setBusy(false);
+    showLoader(false);
+    $("fileInput").value = "";
+    $("fileInput2").value = "";
+  }
+}
+
+$("fileInput").addEventListener("change", event => {
+  handleFile(event.target.files[0]);
+});
+
+$("fileInput2").addEventListener("change", event => {
+  handleFile(event.target.files[0]);
+});
+
+["dragenter", "dragover"].forEach(type => {
+  document.body.addEventListener(type, event => {
+    event.preventDefault();
+    if (!busy) dropZone.classList.add("dragover");
+  });
+});
+
+["dragleave", "drop"].forEach(type => {
+  document.body.addEventListener(type, event => {
+    event.preventDefault();
+    dropZone.classList.remove("dragover");
+  });
+});
+
+document.body.addEventListener("drop", event => {
+  handleFile(event.dataTransfer.files[0]);
+});
+
+/* ===================================================================
+   EPUB
+=================================================================== */
+
+async function openEpub(data) {
+  if (typeof ePub !== "function") {
+    throw new Error("EPUB library failed to load. Check your Internet connection.");
+  }
+
+  const restoreCfi = state.cfi;
+
+  $("viewer").classList.add("active");
+  $("readerControls").style.display = "flex";
+  dropZone.style.display = "none";
+
+  book = ePub(data);
+
+  rendition = book.renderTo("viewer", {
+    width:"100%",
+    height:"100%",
+    flow:"paginated",
+    spread:"none"
+  });
+
+  applyFontSize();
+
+  rendition.on("relocated", location => {
+    if (!location || !location.start || !activeSessionId) return;
+
+    state.cfi = location.start.cfi;
+    positionChanged();
+    updateProgress(location);
+    highlightToc(location.start.href);
+  });
+
+  rendition.on("keyup", onKey);
+
+  try {
+    await rendition.display(restoreCfi || undefined);
+  } catch (error) {
+    if (!restoreCfi) throw error;
+    state.cfi = null;
+    await rendition.display();
+  }
+
+  const navigation = await book.loaded.navigation;
+  buildEpubToc(navigation.toc || []);
+
+  const location = rendition.currentLocation();
+  if (location && location.start) {
+    state.cfi = location.start.cfi;
+    positionChanged();
+    updateProgress(location);
+    highlightToc(location.start.href);
+  }
+
+  scrollSelectedTocIntoView();
+}
+
+function onKey(event) {
+  if (!rendition || busy) return;
+  const tag = event.target && event.target.tagName;
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag || "")) return;
+
+  if (event.key === "ArrowLeft") rendition.prev().catch(console.error);
+  if (event.key === "ArrowRight") rendition.next().catch(console.error);
+}
+
+document.addEventListener("keyup", onKey);
+
+function buildEpubToc(toc) {
+  const list = $("tocList");
+  list.replaceChildren();
+
+  const add = (items, level = 0) => {
+    items.forEach(item => {
+      const element = document.createElement("div");
+      element.className = "toc-item" + (level ? " sub" : "");
+      element.textContent = (item.label || item.href || "").trim();
+      element.dataset.href = item.href || "";
+
+      element.addEventListener("click", () => {
+        if (rendition && !busy) {
+          rendition.display(item.href).catch(console.error);
+        }
+      });
+
+      list.appendChild(element);
+      if (item.subitems && item.subitems.length) {
+        add(item.subitems, level + 1);
+      }
+    });
+  };
+
+  add(toc);
+}
+
+function highlightToc(href) {
+  document.querySelectorAll(".toc-item").forEach(element => {
+    const target = element.dataset.href;
+    element.classList.toggle(
+      "active",
+      Boolean(target && href && href.includes(target.split("#")[0]))
+    );
+  });
+}
+
+function scrollSelectedTocIntoView() {
+  const selected = $("tocList").querySelector(".toc-item.active");
+  if (selected) selected.scrollIntoView({block:"nearest"});
+}
+
+function updateProgress(location) {
+  if (location && location.start && location.start.displayed) {
+    const displayed = location.start.displayed;
+    $("progress").textContent =
+      `${I18N[state.lang].page} ${displayed.page}/${displayed.total}`;
+  }
+}
+
+/* ===================================================================
+   BINARY READER / CHM CONTAINER
+=================================================================== */
+
+function checkRange(total, offset, length, label = "Data") {
+  if (
+    !Number.isSafeInteger(offset) ||
+    !Number.isSafeInteger(length) ||
+    offset < 0 || length < 0 ||
+    offset > total || length > total - offset
+  ) {
+    throw new Error(label + " is outside the file bounds");
+  }
+}
+
+class Reader {
+  constructor(data) {
+    this.u8 = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
+    this.dv = new DataView(
+      this.u8.buffer, this.u8.byteOffset, this.u8.byteLength
+    );
+    this.p = 0;
+  }
+
+  need(count) {
+    checkRange(this.u8.length, this.p, count, "Binary read");
+  }
+
+  bytes(count) {
+    this.need(count);
+    const result = this.u8.subarray(this.p, this.p + count);
+    this.p += count;
+    return result;
+  }
+
+  byte() {
+    this.need(1);
+    return this.u8[this.p++];
+  }
+
+  u16() {
+    this.need(2);
+    const value = this.dv.getUint16(this.p, true);
+    this.p += 2;
+    return value;
+  }
+
+  u32() {
+    this.need(4);
+    const value = this.dv.getUint32(this.p, true);
+    this.p += 4;
+    return value;
+  }
+
+  u64() {
+    const low = this.u32();
+    const high = this.u32();
+    const value = high * 4294967296 + low;
+    if (!Number.isSafeInteger(value)) {
+      throw new Error("64-bit value exceeds JavaScript's safe integer range");
+    }
+    return value;
+  }
+
+  skip(count) {
+    this.need(count);
+    this.p += count;
+  }
+
+  str(count) {
+    let result = "";
+    for (const value of this.bytes(count)) {
+      result += String.fromCharCode(value);
+    }
+    return result;
+  }
+}
+
+function readENCINT(data, cursor, end) {
+  let value = 0;
+
+  for (let count = 0; count < 9; count++) {
+    if (cursor.p >= end) {
+      throw new Error("Truncated CHM directory integer");
+    }
+
+    const byte = data[cursor.p++];
+    value = value * 128 + (byte & 0x7f);
+
+    if (!Number.isSafeInteger(value)) {
+      throw new Error("CHM directory integer is too large");
+    }
+
+    if (!(byte & 0x80)) return value;
+  }
+
+  throw new Error("Invalid CHM directory integer");
+}
+
+function parseCHM(data) {
+  const reader = new Reader(data);
+
+  if (reader.str(4) !== "ITSF") {
+    throw new Error("Not an ITSF (CHM) file");
+  }
+
+  const version = reader.u32();
+  const headerLength = reader.u32();
+
+  if (version !== 2 && version !== 3) {
+    throw new Error("Unsupported ITSF version: " + version);
+  }
+
+  if (headerLength < (version === 3 ? 0x60 : 0x58)) {
+    throw new Error("Invalid ITSF header length");
+  }
+
+  reader.skip(12);
+  reader.skip(32);
+  reader.u64();
+  reader.u64();
+
+  const directoryOffset = reader.u64();
+  const directoryLength = reader.u64();
+  const contentOffset = version >= 3
+    ? reader.u64()
+    : directoryOffset + directoryLength;
+
+  checkRange(data.length, directoryOffset, directoryLength, "CHM directory");
+  checkRange(data.length, contentOffset, 0, "CHM content");
+
+  const directory = new Reader(
+    data.subarray(directoryOffset, directoryOffset + directoryLength)
+  );
+
+  if (directory.str(4) !== "ITSP") {
+    throw new Error("Not an ITSP directory");
+  }
+
+  directory.u32();
+  const directoryHeaderLength = directory.u32();
+  directory.u32();
+  const chunkSize = directory.u32();
+  directory.skip(24);
+  const chunkCount = directory.u32();
+
+  if (directoryHeaderLength < 0x30 || chunkSize < 20) {
+    throw new Error("Invalid CHM directory geometry");
+  }
+
+  checkRange(
+    directoryLength,
+    directoryHeaderLength,
+    chunkCount * chunkSize,
+    "CHM directory chunks"
+  );
+
+  const entries = [];
+  const decoder = new TextDecoder("utf-8");
+  const directoryBase = directoryOffset + directoryHeaderLength;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+  for (let index = 0; index < chunkCount; index++) {
+    const base = directoryBase + index * chunkSize;
+
+    const signature = String.fromCharCode(
+      data[base], data[base + 1], data[base + 2], data[base + 3]
+    );
+
+    if (signature !== "PMGL") continue;
+
+    const freeSpace = view.getUint32(base + 4, true);
+    if (freeSpace > chunkSize - 20) {
+      throw new Error("Invalid PMGL free-space length");
+    }
+
+    const end = base + chunkSize - freeSpace;
+    const cursor = {p:base + 20};
+
+    while (cursor.p < end) {
+      const nameLength = readENCINT(data, cursor, end);
+
+      if (!nameLength || nameLength > end - cursor.p) {
+        throw new Error("Invalid CHM directory filename");
+      }
+
+      const name = decoder.decode(
+        data.subarray(cursor.p, cursor.p + nameLength)
+      );
+
+      cursor.p += nameLength;
+
+      const section = readENCINT(data, cursor, end);
+      const offset = readENCINT(data, cursor, end);
+      const length = readENCINT(data, cursor, end);
+
+      entries.push({name, section, offset, length});
+    }
+  }
+
+  const entryMap = new Map();
+  for (const entry of entries) {
+    entryMap.set(entry.name.toLowerCase(), entry);
+  }
+
+  return {
+    _u8:data,
+    entries,
+    entryMap,
+    contentOffset,
+    _urlCache:new Map()
+  };
+}
+
+function readUncompressed(chmObject, entry) {
+  if (entry.section !== 0) {
+    throw new Error("Expected an uncompressed CHM entry: " + entry.name);
+  }
+
+  const start = chmObject.contentOffset + entry.offset;
+  checkRange(chmObject._u8.length, start, entry.length, entry.name);
+  return chmObject._u8.subarray(start, start + entry.length);
+}
+
+/* ===================================================================
+   LZX DECODER — PRESERVES MATCHES ACROSS OUTPUT FRAMES
+=================================================================== */
+
+const LZX = (() => {
+  const FRAME_SIZE = 0x8000;
+  const NUM_CHARS = 256;
+  const NUM_SECONDARY_LENGTHS = 249;
+  const BLOCK_VERBATIM = 1;
+  const BLOCK_ALIGNED = 2;
+  const BLOCK_UNCOMPRESSED = 3;
+
+  const POSITION_SLOTS = {
+    15:30, 16:32, 17:34, 18:36, 19:38, 20:42, 21:50
+  };
+
+  const EXTRA_BITS = new Uint8Array(51);
+  const POSITION_BASE = new Uint32Array(51);
+
+  for (let slot = 0; slot < EXTRA_BITS.length; slot++) {
+    EXTRA_BITS[slot] = slot < 4
+      ? 0
+      : Math.min(17, Math.floor(slot / 2) - 1);
+
+    if (slot > 0) {
+      POSITION_BASE[slot] =
+        POSITION_BASE[slot - 1] + 2 ** EXTRA_BITS[slot - 1];
+    }
+  }
+
+  class BitReader {
+    constructor(data) {
+      this.data = data;
+      this.pos = 0;
+      this.word = 0;
+      this.bitsLeft = 0;
+    }
+
+    need(count) {
+      if (count < 0 || count > this.data.length - this.pos) {
+        throw new Error(
+          "Truncated LZX frame at compressed byte " + this.pos
+        );
+      }
+    }
+
+    read(count) {
+      if (!Number.isInteger(count) || count < 0 || count > 32) {
+        throw new Error("Invalid LZX bit count");
+      }
+
+      let result = 0;
+
+      while (count > 0) {
+        if (this.bitsLeft === 0) {
+          this.need(2);
+          this.word =
+            this.data[this.pos] | (this.data[this.pos + 1] << 8);
+          this.pos += 2;
+          this.bitsLeft = 16;
+        }
+
+        const take = Math.min(count, this.bitsLeft);
+        const shift = this.bitsLeft - take;
+        const mask = take === 16 ? 0xffff : (1 << take) - 1;
+        const value = (this.word >>> shift) & mask;
+
+        result = result * 2 ** take + value;
+        this.bitsLeft -= take;
+        count -= take;
+
+        this.word &= this.bitsLeft ? (1 << this.bitsLeft) - 1 : 0;
+      }
+
+      return result;
+    }
+
+    alignFrame() {
+      this.word = 0;
+      this.bitsLeft = 0;
+    }
+
+    beginRawBlock() {
+      if (this.bitsLeft === 0) {
+        this.need(2);
+        this.pos += 2;
+      }
+      this.word = 0;
+      this.bitsLeft = 0;
+    }
+
+    rawByte() {
+      if (this.bitsLeft !== 0) {
+        throw new Error("Unaligned LZX raw-byte read");
+      }
+      this.need(1);
+      return this.data[this.pos++];
+    }
+
+    rawU32() {
+      if (this.bitsLeft !== 0) {
+        throw new Error("Unaligned LZX raw DWORD");
+      }
+
+      this.need(4);
+      const position = this.pos;
+      this.pos += 4;
+
+      return (
+        this.data[position] +
+        this.data[position + 1] * 256 +
+        this.data[position + 2] * 65536 +
+        this.data[position + 3] * 16777216
+      ) >>> 0;
+    }
+  }
+
+  function buildTree(lengths) {
+    const counts = new Uint32Array(17);
+    let maximumLength = 0;
+
+    for (const length of lengths) {
+      if (length > 16) {
+        throw new Error("Invalid LZX Huffman code length");
+      }
+      if (length) {
+        counts[length]++;
+        maximumLength = Math.max(maximumLength, length);
+      }
+    }
+
+    const firstCode = new Uint32Array(17);
+    const firstSymbol = new Uint32Array(17);
+    let code = 0;
+    let symbolCount = 0;
+
+    for (let length = 1; length <= 16; length++) {
+      code = (code + counts[length - 1]) * 2;
+
+      if (code + counts[length] > 2 ** length) {
+        throw new Error("Oversubscribed LZX Huffman tree");
+      }
+
+      firstCode[length] = code;
+      firstSymbol[length] = symbolCount;
+      symbolCount += counts[length];
+    }
+
+    const symbols = new Uint16Array(symbolCount);
+    const nextSymbol = firstSymbol.slice();
+
+    for (let symbol = 0; symbol < lengths.length; symbol++) {
+      const length = lengths[symbol];
+      if (length) symbols[nextSymbol[length]++] = symbol;
+    }
+
+    return {counts, firstCode, firstSymbol, symbols, maximumLength};
+  }
+
+  function decodeSymbol(reader, tree) {
+    if (!tree || !tree.maximumLength) {
+      throw new Error("Attempt to decode an empty LZX Huffman tree");
+    }
+
+    let code = 0;
+
+    for (let length = 1; length <= tree.maximumLength; length++) {
+      code = code * 2 + reader.read(1);
+      const offset = code - tree.firstCode[length];
+
+      if (offset >= 0 && offset < tree.counts[length]) {
+        return tree.symbols[tree.firstSymbol[length] + offset];
+      }
+    }
+
+    throw new Error("Invalid LZX Huffman code");
+  }
+
+  function readLengths(reader, lengths, first, last) {
+    const pretreeLengths = new Uint8Array(20);
+
+    for (let index = 0; index < 20; index++) {
+      pretreeLengths[index] = reader.read(4);
+    }
+
+    const pretree = buildTree(pretreeLengths);
+    let index = first;
+
+    while (index < last) {
+      const symbol = decodeSymbol(reader, pretree);
+      let count;
+      let value;
+
+      if (symbol === 17) {
+        count = reader.read(4) + 4;
+        value = 0;
+      } else if (symbol === 18) {
+        count = reader.read(5) + 20;
+        value = 0;
+      } else if (symbol === 19) {
+        count = reader.read(1) + 4;
+        const delta = decodeSymbol(reader, pretree);
+
+        if (delta > 16) {
+          throw new Error("Invalid LZX repeated code-length delta");
+        }
+
+        value = (lengths[index] - delta + 17) % 17;
+      } else {
+        count = 1;
+        value = (lengths[index] - symbol + 17) % 17;
+      }
+
+      if (count > last - index) {
+        throw new Error("LZX code-length run exceeds its tree");
+      }
+
+      lengths.fill(value, index, index + count);
+      index += count;
+    }
+  }
+
+  class Decoder {
+    constructor(windowBits) {
+      if (!POSITION_SLOTS[windowBits]) {
+        throw new Error("Unsupported LZX window size: " + windowBits);
+      }
+
+      this.windowSize = 2 ** windowBits;
+      this.windowMask = this.windowSize - 1;
+      this.window = new Uint8Array(this.windowSize);
+      this.positionSlots = POSITION_SLOTS[windowBits];
+      this.mainElements = NUM_CHARS + this.positionSlots * 8;
+
+      this.mainLengths = new Uint8Array(this.mainElements);
+      this.lengthLengths = new Uint8Array(NUM_SECONDARY_LENGTHS);
+      this.alignedLengths = new Uint8Array(8);
+      this.pendingMatchLength = 0;
+      this.pendingMatchOffset = 0;
+      this.reset();
+    }
+
+    reset() {
+      if (this.pendingMatchLength > 0) {
+        throw new Error(
+          "LZX reset interrupts an unfinished match (" +
+          this.pendingMatchLength + " bytes)"
+        );
+      }
+
+      this.window.fill(0);
+      this.windowPosition = 0;
+      this.R0 = 1;
+      this.R1 = 1;
+      this.R2 = 1;
+      this.headerRead = false;
+      this.blockType = 0;
+      this.blockLength = 0;
+      this.blockRemaining = 0;
+      this.pendingMatchLength = 0;
+      this.pendingMatchOffset = 0;
+      this.rawPaddingPending = false;
+      this.mainLengths.fill(0);
+      this.lengthLengths.fill(0);
+      this.alignedLengths.fill(0);
+      this.mainTree = null;
+      this.lengthTree = null;
+      this.alignedTree = null;
+      this.intelFileSize = 0;
+      this.intelStarted = false;
+    }
+
+    readHeader(reader) {
+      if (reader.read(1)) {
+        const high = reader.read(16);
+        const low = reader.read(16);
+        this.intelFileSize = (high * 65536 + low) | 0;
+      } else {
+        this.intelFileSize = 0;
+      }
+      this.headerRead = true;
+    }
+
+    startBlock(reader) {
+      if (this.pendingMatchLength !== 0) {
+        throw new Error("Cannot start an LZX block during a pending match");
+      }
+
+      if (this.rawPaddingPending) {
+        reader.rawByte();
+        this.rawPaddingPending = false;
+      }
+
+      this.blockType = reader.read(3);
+      this.blockLength = reader.read(16) * 256 + reader.read(8);
+      this.blockRemaining = this.blockLength;
+
+      if (
+        this.blockType !== BLOCK_VERBATIM &&
+        this.blockType !== BLOCK_ALIGNED &&
+        this.blockType !== BLOCK_UNCOMPRESSED
+      ) {
+        throw new Error("Invalid LZX block type " + this.blockType);
+      }
+
+      if (this.blockLength === 0) {
+        throw new Error("Invalid zero-length LZX block");
+      }
+
+      if (this.blockType === BLOCK_ALIGNED) {
+        for (let index = 0; index < 8; index++) {
+          this.alignedLengths[index] = reader.read(3);
+        }
+        this.alignedTree = buildTree(this.alignedLengths);
+      }
+
+      if (
+        this.blockType === BLOCK_VERBATIM ||
+        this.blockType === BLOCK_ALIGNED
+      ) {
+        readLengths(reader, this.mainLengths, 0, NUM_CHARS);
+        readLengths(reader, this.mainLengths, NUM_CHARS, this.mainElements);
+        this.mainTree = buildTree(this.mainLengths);
+
+        if (this.mainLengths[0xe8]) this.intelStarted = true;
+
+        readLengths(
+          reader, this.lengthLengths, 0, NUM_SECONDARY_LENGTHS
+        );
+        this.lengthTree = buildTree(this.lengthLengths);
+      } else {
+        this.intelStarted = true;
+        reader.beginRawBlock();
+
+        this.R0 = reader.rawU32();
+        this.R1 = reader.rawU32();
+        this.R2 = reader.rawU32();
+
+        for (const offset of [this.R0, this.R1, this.R2]) {
+          if (offset < 1 || offset > this.windowSize) {
+            throw new Error("Invalid LZX repeated match offset");
+          }
+        }
+      }
+    }
+
+    readMatchOffset(reader, slot) {
+      let offset;
+
+      if (slot === 0) return this.R0;
+
+      if (slot === 1) {
+        offset = this.R1;
+        this.R1 = this.R0;
+        this.R0 = offset;
+        return offset;
+      }
+
+      if (slot === 2) {
+        offset = this.R2;
+        this.R2 = this.R0;
+        this.R0 = offset;
+        return offset;
+      }
+
+      if (slot >= this.positionSlots) {
+        throw new Error("Invalid LZX position slot");
+      }
+
+      const extra = EXTRA_BITS[slot];
+      offset = POSITION_BASE[slot] - 2;
+
+      if (this.blockType === BLOCK_ALIGNED && extra >= 3) {
+        if (extra > 3) offset += reader.read(extra - 3) * 8;
+        offset += decodeSymbol(reader, this.alignedTree);
+      } else if (extra > 0) {
+        offset += reader.read(extra);
+      }
+
+      this.R2 = this.R1;
+      this.R1 = this.R0;
+      this.R0 = offset;
+      return offset;
+    }
+
+    copyPendingMatch(output, outputPosition) {
+      const count = Math.min(
+        this.pendingMatchLength,
+        output.length - outputPosition
+      );
+
+      if (count > this.blockRemaining) {
+        throw new Error("Pending LZX match exceeds its block");
+      }
+
+      for (let index = 0; index < count; index++) {
+        const source =
+          (this.windowPosition - this.pendingMatchOffset) &
+          this.windowMask;
+
+        const value = this.window[source];
+        this.window[this.windowPosition] = value;
+        this.windowPosition =
+          (this.windowPosition + 1) & this.windowMask;
+        output[outputPosition++] = value;
+      }
+
+      this.pendingMatchLength -= count;
+      this.blockRemaining -= count;
+
+      if (this.pendingMatchLength === 0) this.pendingMatchOffset = 0;
+      return outputPosition;
+    }
+
+    decodeFrame(input, outputLength, absoluteOutputOffset, frameNumber) {
+      if (
+        !Number.isInteger(outputLength) ||
+        outputLength < 1 || outputLength > FRAME_SIZE
+      ) {
+        throw new Error("Invalid LZX output frame length");
+      }
+
+      const reader = new BitReader(input);
+      const output = new Uint8Array(outputLength);
+      let outputPosition = 0;
+
+      if (!this.headerRead) this.readHeader(reader);
+
+      while (outputPosition < outputLength) {
+        if (this.pendingMatchLength > 0) {
+          outputPosition = this.copyPendingMatch(output, outputPosition);
+          continue;
+        }
+
+        if (this.blockRemaining === 0) this.startBlock(reader);
+
+        if (this.blockType === BLOCK_UNCOMPRESSED) {
+          const count = Math.min(
+            this.blockRemaining, outputLength - outputPosition
+          );
+
+          reader.need(count);
+
+          for (let index = 0; index < count; index++) {
+            const value = reader.rawByte();
+            this.window[this.windowPosition] = value;
+            this.windowPosition =
+              (this.windowPosition + 1) & this.windowMask;
+            output[outputPosition++] = value;
+          }
+
+          this.blockRemaining -= count;
+
+          if (this.blockRemaining === 0 && (this.blockLength & 1)) {
+            this.rawPaddingPending = true;
+          }
+          continue;
+        }
+
+        const symbol = decodeSymbol(reader, this.mainTree);
+
+        if (symbol < NUM_CHARS) {
+          this.window[this.windowPosition] = symbol;
+          this.windowPosition =
+            (this.windowPosition + 1) & this.windowMask;
+          output[outputPosition++] = symbol;
+          this.blockRemaining--;
+          continue;
+        }
+
+        const match = symbol - NUM_CHARS;
+        const primaryLength = match & 7;
+        const slot = match >>> 3;
+        let matchLength = primaryLength + 2;
+
+        if (primaryLength === 7) {
+          matchLength += decodeSymbol(reader, this.lengthTree);
+        }
+
+        if (matchLength > this.blockRemaining) {
+          throw new Error(
+            "LZX match exceeds block length: match=" +
+            matchLength + ", blockRemaining=" + this.blockRemaining
+          );
+        }
+
+        const matchOffset = this.readMatchOffset(reader, slot);
+
+        if (matchOffset < 1 || matchOffset > this.windowSize) {
+          throw new Error("LZX match offset is outside the dictionary");
+        }
+
+        this.pendingMatchLength = matchLength;
+        this.pendingMatchOffset = matchOffset;
+      }
+
+      if (
+        this.rawPaddingPending &&
+        reader.bitsLeft === 0 &&
+        reader.pos < input.length
+      ) {
+        reader.rawByte();
+        this.rawPaddingPending = false;
+      }
+
+      reader.alignFrame();
+      this.translateIntel(output, absoluteOutputOffset, frameNumber);
+      return output;
+    }
+
+    translateIntel(output, absoluteOutputOffset, frameNumber) {
+      if (
+        !this.intelStarted || this.intelFileSize === 0 ||
+        frameNumber >= 32768 || output.length <= 10
+      ) {
+        return;
+      }
+
+      const view = new DataView(
+        output.buffer, output.byteOffset, output.byteLength
+      );
+
+      const end = output.length - 10;
+      let position = 0;
+
+      while (position < end) {
+        if (output[position] !== 0xe8) {
+          position++;
+          continue;
+        }
+
+        const currentPosition = absoluteOutputOffset + position;
+        const absolute = view.getInt32(position + 1, true);
+
+        if (
+          absolute >= -currentPosition &&
+          absolute < this.intelFileSize
+        ) {
+          const relative = absolute >= 0
+            ? absolute - currentPosition
+            : absolute + this.intelFileSize;
+
+          view.setInt32(position + 1, relative, true);
+        }
+
+        position += 5;
+      }
+    }
+  }
+
+  return {Decoder, FRAME_SIZE};
+})();
+
+/* ===================================================================
+   CHM COMPRESSED SECTION
+=================================================================== */
+
+async function getLZXContent(chmObject) {
+  const find = name => chmObject.entryMap.get(name.toLowerCase());
+  const prefix = "::DataSpace/Storage/MSCompressed/";
+  const content = find(prefix + "Content");
+  const control = find(prefix + "ControlData");
+
+  const resetTable =
+    find(
+      prefix +
+      "Transform/{7FC28940-9D31-11D0-9B27-00A0C91E9C7C}/InstanceData/ResetTable"
+    ) ||
+    chmObject.entries.find(entry =>
+      entry.name.toLowerCase().startsWith(prefix.toLowerCase()) &&
+      entry.name.toLowerCase().endsWith("/instancedata/resettable")
+    );
+
+  const needsCompression = chmObject.entries.some(entry =>
+    entry.section === 1 && entry.length > 0
+  );
+
+  if (!needsCompression) return null;
+
+  if (!content || !control || !resetTable) {
+    throw new Error("Missing CHM LZX Content, ControlData or ResetTable");
+  }
+
+  const controlReader = new Reader(readUncompressed(chmObject, control));
+  controlReader.u32();
+
+  if (controlReader.str(4) !== "LZXC") {
+    throw new Error("Invalid LZX ControlData signature");
+  }
+
+  const controlVersion = controlReader.u32();
+  let resetInterval = controlReader.u32();
+  let windowSize = controlReader.u32();
+  controlReader.u32();
+
+  if (controlVersion === 2) {
+    resetInterval *= LZX.FRAME_SIZE;
+    windowSize *= LZX.FRAME_SIZE;
+  } else if (controlVersion !== 1) {
+    throw new Error("Unsupported LZX ControlData version: " + controlVersion);
+  }
+
+  const windowBits = Math.log2(windowSize);
+
+  if (
+    !Number.isInteger(windowBits) ||
+    windowBits < 15 || windowBits > 21
+  ) {
+    throw new Error("Invalid CHM LZX window size: " + windowSize);
+  }
+
+  if (
+    !Number.isSafeInteger(resetInterval) ||
+    resetInterval < LZX.FRAME_SIZE ||
+    resetInterval % LZX.FRAME_SIZE !== 0
+  ) {
+    throw new Error("Invalid CHM LZX reset interval: " + resetInterval);
+  }
+
+  const resetReader = new Reader(readUncompressed(chmObject, resetTable));
+  const resetVersion = resetReader.u32();
+  const blockCount = resetReader.u32();
+  const entrySize = resetReader.u32();
+  const tableOffset = resetReader.u32();
+  const uncompressedLength = resetReader.u64();
+  const compressedLength = resetReader.u64();
+  const frameLength = resetReader.u64();
+
+  if (resetVersion !== 2) {
+    throw new Error("Unsupported LZX ResetTable version: " + resetVersion);
+  }
+  if (entrySize !== 8) {
+    throw new Error("Unsupported LZX ResetTable entry size: " + entrySize);
+  }
+  if (tableOffset < 0x28) {
+    throw new Error("Invalid LZX ResetTable table offset");
+  }
+  if (frameLength !== LZX.FRAME_SIZE) {
+    throw new Error("Unsupported CHM LZX frame length: " + frameLength);
+  }
+
+  checkRange(
+    resetReader.u8.length,
+    tableOffset,
+    blockCount * entrySize,
+    "LZX reset offsets"
+  );
+
+  const compressed = readUncompressed(chmObject, content);
+
+  if (compressedLength > compressed.length) {
+    throw new Error("LZX compressed length exceeds the Content entry");
+  }
+
+  const frameCount = Math.ceil(uncompressedLength / frameLength);
+
+  if (blockCount < frameCount) {
+    throw new Error("LZX ResetTable does not contain enough frame offsets");
+  }
+
+  if (uncompressedLength === 0) {
+    return {data:new Uint8Array(0), uncompLen:0};
+  }
+
+  if (uncompressedLength > 512 * 1024 * 1024) {
+    throw new Error("CHM decompressed content exceeds the 512 MiB viewer limit");
+  }
+
+  resetReader.p = tableOffset;
+  const offsets = [];
+
+  for (let index = 0; index < frameCount; index++) {
+    const offset = resetReader.u64();
+
+    if (
+      offset > compressedLength ||
+      (index > 0 && offset < offsets[index - 1])
+    ) {
+      throw new Error("Invalid LZX compressed-frame offset at index " + index);
+    }
+
+    offsets.push(offset);
+  }
+
+  if (offsets[0] !== 0) {
+    throw new Error("The first LZX frame does not start at offset zero");
+  }
+
+  const output = new Uint8Array(uncompressedLength);
+  const decoder = new LZX.Decoder(windowBits);
+  const framesPerReset = resetInterval / frameLength;
+  let outputPosition = 0;
+
+  for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
+    const start = offsets[frameIndex];
+    const end = frameIndex + 1 < frameCount
+      ? offsets[frameIndex + 1]
+      : compressedLength;
+
+    const outputLength = Math.min(
+      frameLength, uncompressedLength - outputPosition
+    );
+
+    try {
+      if (frameIndex > 0 && frameIndex % framesPerReset === 0) {
+        decoder.reset();
+      }
+
+      const frame = decoder.decodeFrame(
+        compressed.subarray(start, end),
+        outputLength,
+        outputPosition,
+        frameIndex
+      );
+
+      output.set(frame, outputPosition);
+    } catch (error) {
+      throw new Error(
+        `LZX frame ${frameIndex}, compressed offset 0x${start.toString(16)}: ` +
+        error.message
+      );
+    }
+
+    outputPosition += outputLength;
+
+    if ((frameIndex & 31) === 31) {
+      $("loaderDetail").textContent =
+        `${Math.round(outputPosition / uncompressedLength * 100)}%`;
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }
+
+  $("loaderDetail").textContent = "100%";
+  return {data:output, uncompLen:uncompressedLength};
+}
+
+function readEntry(chmObject, decompressed, entry) {
+  if (entry.section === 0) return readUncompressed(chmObject, entry);
+
+  if (entry.section !== 1) {
+    throw new Error("Unsupported CHM content section: " + entry.section);
+  }
+
+  if (entry.length === 0) return new Uint8Array(0);
+
+  if (!decompressed) {
+    throw new Error("Compressed CHM content is unavailable");
+  }
+
+  checkRange(
+    decompressed.data.length, entry.offset, entry.length, entry.name
+  );
+
+  return decompressed.data.subarray(entry.offset, entry.offset + entry.length);
+}
+
+/* ===================================================================
+   CHM TEXT / METADATA
+=================================================================== */
+
+function getChmSystemRecords(chmObject) {
+  const entry = chmObject.entryMap.get("/#system");
+  const records = new Map();
+  if (!entry) return records;
+
+  const data = chmObject._read(entry);
+  if (data.length < 4) return records;
+
+  const reader = new Reader(data);
+  reader.u32();
+
+  while (reader.p + 4 <= data.length) {
+    const code = reader.u16();
+    const length = reader.u16();
+    records.set(code, reader.bytes(length));
+  }
+
+  return records;
+}
+
+function chmDefaultEncoding(records) {
+  const info = records.get(4);
+
+  if (info && info.length >= 4) {
+    const locale = new DataView(
+      info.buffer, info.byteOffset, info.byteLength
+    ).getUint32(0, true);
+
+    const language = locale & 0x3ff;
+
+    if ([0x02, 0x19, 0x22, 0x23, 0x2f].includes(language)) {
+      return "windows-1251";
+    }
+
+    if ([0x05, 0x0e, 0x15, 0x18, 0x1a, 0x1b, 0x24].includes(language)) {
+      return "windows-1250";
+    }
+
+    if (language === 0x08) return "windows-1253";
+    if (language === 0x1f) return "windows-1254";
+    if (language === 0x0d) return "windows-1255";
+    if (language === 0x01) return "windows-1256";
+    if (language === 0x11) return "shift_jis";
+    if (language === 0x12) return "euc-kr";
+
+    if (language === 0x04) {
+      return [0x0404, 0x0c04, 0x1404].includes(locale)
+        ? "big5"
+        : "gb18030";
+    }
+  }
+
+  return "windows-1252";
+}
+
+function decodeChmText(data, fallback = "windows-1252") {
+  if (data.length >= 2 && data[0] === 0xff && data[1] === 0xfe) {
+    return new TextDecoder("utf-16le").decode(data);
+  }
+
+  if (data.length >= 2 && data[0] === 0xfe && data[1] === 0xff) {
+    return new TextDecoder("utf-16be").decode(data);
+  }
+
+  if (
+    data.length >= 3 &&
+    data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf
+  ) {
+    return new TextDecoder("utf-8").decode(data);
+  }
+
+  const sample = new TextDecoder("windows-1252").decode(
+    data.subarray(0, 8192)
+  );
+
+  const declaration =
+    sample.match(/<meta\b[^>]*charset\s*=\s*["']?\s*([a-z0-9._-]+)/i) ||
+    sample.match(/<\?xml\b[^>]*encoding\s*=\s*["']([^"']+)/i) ||
+    sample.match(/@charset\s+["']([^"']+)/i);
+
+  if (declaration) {
+    try { return new TextDecoder(declaration[1]).decode(data); } catch (_) {}
+  }
+
+  try {
+    return new TextDecoder("utf-8", {fatal:true}).decode(data);
+  } catch (_) {
+    return new TextDecoder(fallback).decode(data);
+  }
+}
+
+function readSystemString(chmObject, code) {
+  const bytes = chmObject._system.get(code);
+  if (!bytes) return "";
+
+  const zero = bytes.indexOf(0);
+  const text = zero >= 0 ? bytes.subarray(0, zero) : bytes;
+  return decodeChmText(text, chmObject._encoding).trim();
+}
+
+/* ===================================================================
+   CHM OPENER / CONTENTS
+=================================================================== */
+
+async function openChm(arrayBuffer) {
+  // Capture restoration values before rendering changes state.
+  const restoredPath = state.chmPath;
+  const restoredHash = state.chmHash;
+  const restoredScroll = state.chmScroll;
+
+  const chmObject = parseCHM(new Uint8Array(arrayBuffer));
+  const decompressed = await getLZXContent(chmObject);
+
+  chmObject._decompressed = decompressed;
+  chmObject._read = entry => readEntry(chmObject, decompressed, entry);
+  chmObject._system = getChmSystemRecords(chmObject);
+  chmObject._encoding = chmDefaultEncoding(chmObject._system);
+  chmObject._text = entry =>
+    decodeChmText(chmObject._read(entry), chmObject._encoding);
+
+  chm = chmObject;
+
+  $("chm-content").classList.add("active");
+  dropZone.style.display = "none";
+  buildChmToc(chmObject);
+
+  const savedEntry = restoredPath
+    ? chmObject.entryMap.get(restoredPath.toLowerCase())
+    : null;
+
+  if (savedEntry) {
+    showChmPage(chmObject, savedEntry, restoredHash, {
+      scrollTop:restoredScroll
+    });
+  } else {
+    const home = findChmHome(chmObject);
+
+    if (home) {
+      showChmPage(chmObject, home.entry, home.hash);
+    } else {
+      const documentObject = document.implementation.createHTMLDocument("");
+      const paragraph = documentObject.createElement("p");
+      paragraph.style.cssText = "font-family:sans-serif;padding:20px";
+      paragraph.textContent = I18N[state.lang].noToc;
+      documentObject.body.appendChild(paragraph);
+      $("chm-frame").srcdoc = documentObject.documentElement.outerHTML;
+    }
+  }
+
+  scrollSelectedTocIntoView();
+}
+
+function resolveChmLink(chmObject, href, baseName = "/") {
+  if (!href) return null;
+
+  href = href.trim().replace(/\\/g, "/");
+
+  const archiveSeparator = href.indexOf("::");
+  if (archiveSeparator >= 0) href = href.slice(archiveSeparator + 2);
+
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith("//")) {
+    return null;
+  }
+
+  let url;
+  try {
+    const base = new URL(baseName, "https://chm.invalid/");
+    url = new URL(href, base);
+  } catch (_) {
+    return null;
+  }
+
+  let pathname = url.pathname;
+  try { pathname = decodeURIComponent(pathname); } catch (_) {}
+
+  const entry = chmObject.entryMap.get(pathname.toLowerCase());
+  return entry ? {entry, hash:url.hash} : null;
+}
+
+function findChmHome(chmObject) {
+  const defaultTopic = readSystemString(chmObject, 2);
+
+  if (defaultTopic) {
+    const result = resolveChmLink(chmObject, defaultTopic);
+    if (result) return result;
+  }
+
+  const entry = chmObject.entries.find(item =>
+    /\.html?$/i.test(item.name) && item.name.startsWith("/")
+  );
+
+  return entry ? {entry, hash:""} : null;
+}
+
+function buildChmToc(chmObject) {
+  const list = $("tocList");
+  list.replaceChildren();
+
+  const contentsName = readSystemString(chmObject, 0);
+  const contentsTarget = contentsName
+    ? resolveChmLink(chmObject, contentsName)
+    : null;
+
+  const hhc = contentsTarget
+    ? contentsTarget.entry
+    : chmObject.entries.find(entry => /\.hhc$/i.test(entry.name));
+
+  let items = [];
+
+  if (hhc) {
+    try { items = parseHHC(chmObject._text(hhc)); } catch (error) {
+      console.warn("HHC parse failed:", error);
+    }
+  }
+
+  const tocBase = hhc ? hhc.name : "/";
+
+  if (!items.length) {
+    items = chmObject.entries
+      .filter(entry =>
+        /\.html?$/i.test(entry.name) && entry.name.startsWith("/")
+      )
+      .map(entry => ({
+        label:entry.name.replace(/^\//, ""),
+        href:entry.name,
+        level:0
+      }));
+  }
+
+  if (!items.length) {
+    const element = document.createElement("div");
+    element.className = "toc-item";
+    element.textContent = I18N[state.lang].noToc;
+    list.appendChild(element);
+    return;
+  }
+
+  for (const item of items) {
+    const element = document.createElement("div");
+    element.className = "toc-item" + (item.level > 0 ? " sub" : "");
+    element.textContent = item.label;
+    element.title = item.label;
+
+    if (item.level > 0) {
+      element.style.paddingLeft =
+        Math.min(100, 16 + item.level * 16) + "px";
+    }
+
+    const target = resolveChmLink(chmObject, item.href, tocBase);
+
+    if (target) {
+      element.dataset.path = target.entry.name.toLowerCase();
+      element.dataset.hash = target.hash;
+    }
+
+    element.addEventListener("click", () => {
+      if (!item.href || busy) return;
+
+      if (target) {
+        try {
+          showChmPage(chmObject, target.entry, target.hash);
+        } catch (error) {
+          console.error(error);
+          toast(I18N[state.lang].errorLoad + ": " + error.message);
+        }
+      } else {
+        toast(I18N[state.lang].missingPage + ": " + item.href);
+      }
+    });
+
+    list.appendChild(element);
+  }
+}
+
+function parseHHC(html) {
+  const documentObject = new DOMParser().parseFromString(html, "text/html");
+  const items = [];
+
+  documentObject.querySelectorAll("object").forEach(object => {
+    let name = "";
+    let local = "";
+
+    object.querySelectorAll("param").forEach(param => {
+      const key = (param.getAttribute("name") || "").toLowerCase();
+      const value = param.getAttribute("value") || "";
+      if (key === "name" && !name) name = value;
+      if (key === "local") local = value;
+    });
+
+    if (!name && !local) return;
+
+    let level = -1;
+    let parent = object.parentElement;
+
+    while (parent) {
+      if (parent.tagName === "UL") level++;
+      parent = parent.parentElement;
+    }
+
+    items.push({
+      label:name || local,
+      href:local,
+      level:Math.max(0, level)
+    });
+  });
+
+  return items;
+}
+
+/* ===================================================================
+   CHM RESOURCES / PAGE RENDERING / SCROLL RESTORATION
+=================================================================== */
+
+function mimeFor(path) {
+  const extension = path.toLowerCase().split(".").pop();
+  const types = {
+    html:"text/html", htm:"text/html",
+    png:"image/png", jpg:"image/jpeg", jpeg:"image/jpeg",
+    gif:"image/gif", svg:"image/svg+xml", bmp:"image/bmp",
+    webp:"image/webp", ico:"image/x-icon", css:"text/css",
+    woff:"font/woff", woff2:"font/woff2", ttf:"font/ttf",
+    otf:"font/otf", mp3:"audio/mpeg", wav:"audio/wav", mp4:"video/mp4"
+  };
+  return types[extension] || "application/octet-stream";
+}
+
+function resourceURL(chmObject, entry, active = new Set()) {
+  const key = entry.name.toLowerCase();
+
+  if (chmObject._urlCache.has(key)) {
+    return chmObject._urlCache.get(key);
+  }
+
+  if (active.has(key)) return null;
+  active.add(key);
+
+  try {
+    const contents = /\.css$/i.test(entry.name)
+      ? rewriteCss(chmObject, chmObject._text(entry), entry.name, active)
+      : chmObject._read(entry).slice();
+
+    const url = URL.createObjectURL(
+      new Blob([contents], {type:mimeFor(entry.name)})
+    );
+
+    chmObject._urlCache.set(key, url);
+    return url;
+  } finally {
+    active.delete(key);
+  }
+}
+
+function rewriteResourceReference(chmObject, href, baseName, active) {
+  const target = resolveChmLink(chmObject, href, baseName);
+  if (!target) return href;
+
+  const url = resourceURL(chmObject, target.entry, active);
+  return url ? url + target.hash : href;
+}
+
+function rewriteCss(chmObject, css, baseName, active = new Set()) {
+  css = css.replace(
+    /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s]+))\s*\)/gi,
+    (match, doubleQuoted, singleQuoted, bare) => {
+      const href = doubleQuoted ?? singleQuoted ?? bare ?? "";
+      if (!href || href.startsWith("#")) return match;
+
+      const url = rewriteResourceReference(
+        chmObject, href, baseName, active
+      );
+
+      return `url("${url.replace(/"/g, "%22")}")`;
+    }
+  );
+
+  return css.replace(
+    /(@import\s+)(["'])([^"']+)\2/gi,
+    (match, prefix, quote, href) => {
+      const url = rewriteResourceReference(
+        chmObject, href, baseName, active
+      );
+      return prefix + quote + url + quote;
+    }
+  );
+}
+
+function highlightChmToc(entry, hash = "") {
+  const elements = [...document.querySelectorAll("#tocList .toc-item")];
+  const path = entry.name.toLowerCase();
+
+  let selected = elements.find(element =>
+    element.dataset.path === path &&
+    (element.dataset.hash || "") === hash
+  );
+
+  if (!selected) {
+    selected = elements.find(element => element.dataset.path === path);
+  }
+
+  elements.forEach(element => {
+    element.classList.toggle("active", element === selected);
+  });
+}
+
+function showChmPage(chmObject, entry, hash = "", options = {}) {
+  const documentObject = new DOMParser().parseFromString(
+    chmObject._text(entry), "text/html"
+  );
+
+  documentObject
+    .querySelectorAll("script,iframe,object,embed,base")
+    .forEach(element => element.remove());
+
+  documentObject.querySelectorAll("meta[http-equiv]").forEach(element => {
+    const value = element.getAttribute("http-equiv").toLowerCase();
+    if (value === "refresh" || value === "content-security-policy") {
+      element.remove();
+    }
+  });
+
+  documentObject.querySelectorAll("*").forEach(element => {
+    for (const attribute of [...element.attributes]) {
+      if (/^on/i.test(attribute.name)) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  });
+
+  for (const attribute of ["src", "background"]) {
+    documentObject.querySelectorAll(`[${attribute}]`).forEach(element => {
+      element.setAttribute(
+        attribute,
+        rewriteResourceReference(
+          chmObject,
+          element.getAttribute(attribute),
+          entry.name,
+          new Set()
+        )
+      );
+    });
+  }
+
+  documentObject.querySelectorAll("link[href]").forEach(element => {
+    element.setAttribute(
+      "href",
+      rewriteResourceReference(
+        chmObject,
+        element.getAttribute("href"),
+        entry.name,
+        new Set()
+      )
+    );
+  });
+
+  documentObject.querySelectorAll("style").forEach(element => {
+    element.textContent = rewriteCss(
+      chmObject, element.textContent, entry.name
+    );
+  });
+
+  documentObject.querySelectorAll("[style]").forEach(element => {
+    element.setAttribute(
+      "style",
+      rewriteCss(chmObject, element.getAttribute("style"), entry.name)
+    );
+  });
+
+  const readerStyle = documentObject.createElement("style");
+  readerStyle.textContent = `
+    html { font-size:${state.fontSize}%; scroll-behavior:auto !important }
+    body {
+      font-family:Georgia,serif;
+      line-height:1.7;
+      padding:30px;
+      max-width:900px;
+      margin:0 auto;
+      color:#222;
+      overflow-wrap:break-word;
+    }
+    img,svg,video { max-width:100%; height:auto }
+    pre { overflow:auto }
+  `;
+  documentObject.head.appendChild(readerStyle);
+
+  clearTimeout(scrollSaveTimer);
+  chmPageReady = false;
+  const token = ++chmPageToken;
+  const sessionId = activeSessionId;
+
+  const hasSavedScroll = Number.isFinite(options.scrollTop);
+  const desiredScroll = hasSavedScroll
+    ? Math.max(0, options.scrollTop)
+    : 0;
+
+  state.chmPath = entry.name;
+  state.chmHash = hash || "";
+  state.chmScroll = desiredScroll;
+  state.cfi = null;
+  positionChanged();
+
+  chmObject._currentEntry = entry;
+  highlightChmToc(entry, hash);
+
+  // Helps reject stale iframe load events during rapid navigation.
+  documentObject.documentElement.dataset.readerToken = String(token);
+
+  const frame = $("chm-frame");
+
+  frame.onload = () => {
+    if (
+      chm !== chmObject ||
+      token !== chmPageToken ||
+      sessionId !== activeSessionId
+    ) {
+      return;
+    }
+
+    const loadedDocument = frame.contentDocument;
+
+    if (
+      !loadedDocument ||
+      loadedDocument.documentElement.dataset.readerToken !== String(token)
+    ) {
+      return;
+    }
+
+    const frameWindow = loadedDocument.defaultView;
+    loadedDocument.documentElement.style.fontSize = state.fontSize + "%";
+
+    loadedDocument.addEventListener("click", event => {
+      const anchor = event.target.closest
+        ? event.target.closest("a[href],area[href]")
+        : null;
+
+      if (!anchor) return;
+      event.preventDefault();
+      if (busy) return;
+
+      const href = anchor.getAttribute("href") || "";
+
+      if (/^(https?:|mailto:)/i.test(href)) {
+        window.open(href, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      if (href.startsWith("#")) {
+        state.chmHash = href;
+        scrollToChmAnchor(loadedDocument, href);
+        captureChmScroll();
+        highlightChmToc(entry, href);
+        positionChanged();
+        return;
+      }
+
+      const target = resolveChmLink(chmObject, href, entry.name);
+
+      if (target) {
+        try {
+          showChmPage(chmObject, target.entry, target.hash);
+        } catch (error) {
+          console.error(error);
+          toast(I18N[state.lang].errorLoad + ": " + error.message);
+        }
+      } else {
+        toast(I18N[state.lang].missingPage + ": " + href);
+      }
+    });
+
+    // The iframe load event waits for its regular image/CSS resources.
+    // Restore after layout, then begin tracking user scrolling.
+    frameWindow.requestAnimationFrame(() => {
+      if (token !== chmPageToken || sessionId !== activeSessionId) return;
+
+      if (hasSavedScroll) {
+        frameWindow.scrollTo(0, desiredScroll);
+      } else if (hash) {
+        scrollToChmAnchor(loadedDocument, hash);
+      } else {
+        frameWindow.scrollTo(0, 0);
+      }
+
+      chmPageReady = true;
+      captureChmScroll();
+      positionChanged();
+
+      frameWindow.addEventListener("scroll", () => {
+        if (
+          !chmPageReady ||
+          token !== chmPageToken ||
+          sessionId !== activeSessionId
+        ) {
+          return;
+        }
+
+        captureChmScroll();
+
+        clearTimeout(scrollSaveTimer);
+        scrollSaveTimer = setTimeout(() => {
+          if (token === chmPageToken && sessionId === activeSessionId) {
+            positionChanged();
+          }
+        }, 120);
+      }, {passive:true});
+    });
+  };
+
+  frame.srcdoc = "<!DOCTYPE html>\n" + documentObject.documentElement.outerHTML;
+}
+
+function scrollToChmAnchor(documentObject, hash) {
+  let id = hash.replace(/^#/, "");
+  try { id = decodeURIComponent(id); } catch (_) {}
+
+  if (!id) {
+    documentObject.defaultView.scrollTo(0, 0);
+    return;
+  }
+
+  const target =
+    documentObject.getElementById(id) ||
+    documentObject.getElementsByName(id)[0];
+
+  if (target) target.scrollIntoView();
+}
+
+/* ===================================================================
+   FONT SIZE / NAVIGATION / TOC
+=================================================================== */
+
+function applyFontSize() {
+  if (rendition) rendition.themes.fontSize(state.fontSize + "%");
+
+  if (chm) {
+    try {
+      const documentObject = $("chm-frame").contentDocument;
+      if (documentObject && documentObject.documentElement) {
+        documentObject.documentElement.style.fontSize = state.fontSize + "%";
+      }
+    } catch (_) {}
+  }
+}
+
+$("fontUp").addEventListener("click", () => {
+  state.fontSize = Math.min(220, state.fontSize + 10);
+  applyFontSize();
+  saveState();
+});
+
+$("fontDown").addEventListener("click", () => {
+  state.fontSize = Math.max(60, state.fontSize - 10);
+  applyFontSize();
+  saveState();
+});
+
+$("prevBtn").addEventListener("click", () => {
+  if (rendition && !busy) rendition.prev().catch(console.error);
+});
+
+$("nextBtn").addEventListener("click", () => {
+  if (rendition && !busy) rendition.next().catch(console.error);
+});
+
+$("toggleToc").addEventListener("click", () => {
+  state.tocVisible = !state.tocVisible;
+  $("sidebar").classList.toggle("hidden", !state.tocVisible);
+  saveState();
+
+  setTimeout(() => {
+    if (rendition) rendition.resize();
+  }, 320);
+});
+
+/* ===================================================================
+   AUTOMATIC RESTORATION
+=================================================================== */
+
+async function initialize() {
+  loadState();
+  applyLang();
+  $("sidebar").classList.toggle("hidden", !state.tocVisible);
+
+  setBusy(true);
+  setLoaderLabel("restoring");
+  showLoader(true);
+
+  let record = null;
+
+  try {
+    record = await readSavedSession();
+  } catch (error) {
+    console.warn("Saved file could not be read:", error);
+    if (state.fileName) toast(I18N[state.lang].errorRestore, 7000);
+  } finally {
+    setBusy(false);
+    showLoader(false);
+  }
+
+  if (
+    record &&
+    record.id &&
+    typeof record.name === "string" &&
+    record.blob instanceof Blob
+  ) {
+    await handleFile(record.blob, record);
+  }
+}
+
+initialize().catch(error => {
+  console.error(error);
+  setBusy(false);
+  showLoader(false);
+  toast(I18N[state.lang].errorRestore, 8000);
+});
+</script>
+</body>
+</html>
